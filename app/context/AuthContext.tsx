@@ -1,0 +1,257 @@
+// context/AuthContext.tsx
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import { Alert } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+
+export type UserRole = 'lab_technician' | 'doctor' | 'admin';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  hasFaceId: boolean;
+}
+
+interface AuthContextType {
+  user: User | null;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<boolean>;
+  loginWithFace: (faceData: any) => Promise<boolean>;
+  register: (name: string, email: string, password: string, role: UserRole) => Promise<boolean>;
+  logout: () => void;
+  setupFaceId: (faceData: any) => Promise<boolean>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Mock authentication functions - replace with actual API calls in production
+const mockUsers = [
+  {
+    id: '1',
+    name: 'Lab Tech',
+    email: 'lab@example.com',
+    password: 'password123',
+    role: 'lab_technician' as UserRole,
+    hasFaceId: false,
+    faceData: null
+  },
+  {
+    id: '2',
+    name: 'Doctor',
+    email: 'doctor@example.com',
+    password: 'password123',
+    role: 'doctor' as UserRole,
+    hasFaceId: false,
+    faceData: null
+  },
+  {
+    id: '3',
+    name: 'Admin',
+    email: 'admin@example.com',
+    password: 'password123',
+    role: 'admin' as UserRole,
+    hasFaceId: false,
+    faceData: null
+  }
+];
+
+export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Check for existing session on app start
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const userJson = await SecureStore.getItemAsync('user');
+        if (userJson) {
+          setUser(JSON.parse(userJson));
+        }
+      } catch (error) {
+        console.error('Failed to load user', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadUser();
+  }, []);
+
+  const login = async (email: string, password: string): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+      // Simulate API request delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const foundUser = mockUsers.find(u => u.email === email && u.password === password);
+      
+      if (foundUser) {
+        const userData: User = {
+          id: foundUser.id,
+          name: foundUser.name,
+          email: foundUser.email,
+          role: foundUser.role,
+          hasFaceId: foundUser.hasFaceId
+        };
+        
+        setUser(userData);
+        await SecureStore.setItemAsync('user', JSON.stringify(userData));
+        return true;
+      } else {
+        Alert.alert('Login Failed', 'Invalid email or password');
+        return false;
+      }
+    } catch (error) {
+      console.error('Login error', error);
+      Alert.alert('Login Error', 'An error occurred during login');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loginWithFace = async (faceData: any): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+      // Simulate face recognition verification
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // This would be replaced with actual face recognition comparison
+      const foundUser = mockUsers.find(u => u.hasFaceId && u.faceData);
+      
+      if (foundUser) {
+        const userData: User = {
+          id: foundUser.id,
+          name: foundUser.name,
+          email: foundUser.email,
+          role: foundUser.role,
+          hasFaceId: true
+        };
+        
+        setUser(userData);
+        await SecureStore.setItemAsync('user', JSON.stringify(userData));
+        return true;
+      } else {
+        Alert.alert('Face ID Failed', 'Could not recognize face');
+        return false;
+      }
+    } catch (error) {
+      console.error('Face login error', error);
+      Alert.alert('Face ID Error', 'An error occurred during face recognition');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const register = async (name: string, email: string, password: string, role: UserRole): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+      // Simulate API request delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Check if user already exists
+      if (mockUsers.some(u => u.email === email)) {
+        Alert.alert('Registration Failed', 'Email already in use');
+        return false;
+      }
+      
+      // Create new user (in a real app, this would be an API call)
+      const newUser = {
+        id: String(mockUsers.length + 1),
+        name,
+        email,
+        password,
+        role,
+        hasFaceId: false,
+        faceData: null
+      };
+      
+      // In a real app, this would be stored in the backend
+      mockUsers.push(newUser);
+      
+      // Log in the user
+      const userData: User = {
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        hasFaceId: false
+      };
+      
+      setUser(userData);
+      await SecureStore.setItemAsync('user', JSON.stringify(userData));
+      
+      return true;
+    } catch (error) {
+      console.error('Registration error', error);
+      Alert.alert('Registration Error', 'An error occurred during registration');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const setupFaceId = async (faceData: any): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+      // Simulate processing delay
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      if (!user) {
+        Alert.alert('Error', 'No user is logged in');
+        return false;
+      }
+      
+      // Update user with face data
+      const userIndex = mockUsers.findIndex(u => u.id === user.id);
+      if (userIndex !== -1) {
+        mockUsers[userIndex].hasFaceId = true;
+        mockUsers[userIndex].faceData = faceData;
+        
+        // Update current user
+        const updatedUser = { ...user, hasFaceId: true };
+        setUser(updatedUser);
+        await SecureStore.setItemAsync('user', JSON.stringify(updatedUser));
+        
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Face setup error', error);
+      Alert.alert('Face ID Setup Error', 'An error occurred while setting up Face ID');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    setUser(null);
+    await SecureStore.deleteItemAsync('user');
+  };
+
+  return (
+    <AuthContext.Provider value={{
+      user,
+      isLoading,
+      login,
+      loginWithFace,
+      register,
+      logout,
+      setupFaceId
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = (): AuthContextType => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
