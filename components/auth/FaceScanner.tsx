@@ -295,6 +295,7 @@
 //     marginBottom: 24,
 //   },
 // });
+// components/auth/FaceScanner.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
@@ -303,18 +304,16 @@ import {
   Animated,
   ActivityIndicator
 } from 'react-native';
+import { CameraView } from 'expo-camera';
 import { useCameraPermissions } from 'expo-camera';
-import { scanFaces } from 'vision-camera-face-detector';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import {
-  Camera,
-  useCameraDevice,
-  useFrameProcessor
-} from 'react-native-vision-camera';
+
+// Components
 import { ThemedText } from '../../components/ThemedText';
+
+// Constants
 import { Colors } from '../../constants/Colors';
-import 'react-native-reanimated';
 
 interface FaceScannerProps {
   onFaceDetected: (faceData: any) => void;
@@ -322,24 +321,22 @@ interface FaceScannerProps {
 }
 
 export default function FaceScanner({ onFaceDetected, onCancel }: FaceScannerProps) {
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [faces, setFaces] = useState<any[]>([]);
+  const [permission, requestPermission] = useCameraPermissions();
   const [isScanning, setIsScanning] = useState(true);
   const [scanComplete, setScanComplete] = useState(false);
   
   // Animation values
   const faceBorderAnimation = useRef(new Animated.Value(0)).current;
   const successAnimation = useRef(new Animated.Value(0)).current;
-  const cameraRef = useRef<Camera | null>(null);
-  const device = useCameraDevice('front');
-
+  const cameraRef = useRef<CameraView | null>(null);
+  
   useEffect(() => {
-    (async () => {
-      const status = await Camera.requestCameraPermission();
-      setHasPermission(status === 'granted');
-    })();
-
-    // Face border animation
+    // Request camera permission if not already granted
+    if (!permission?.granted) {
+      requestPermission();
+    }
+    
+    // Start face border animation
     Animated.loop(
       Animated.sequence([
         Animated.timing(faceBorderAnimation, {
@@ -354,36 +351,57 @@ export default function FaceScanner({ onFaceDetected, onCancel }: FaceScannerPro
         })
       ])
     ).start();
-  }, []);
-
-  const frameProcessor = useFrameProcessor((frame) => {
-    const detectedFaces = scanFaces(frame);
-    
-    if (isScanning && detectedFaces.length > 0) {
-      const face = detectedFaces[0];
+  }, [permission, requestPermission]);
+  
+  // Simulate face detection for demo purposes
+  const scanFaces = () => {
+    if (isScanning) {
+      setIsScanning(false);
+      setScanComplete(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
-      // Check face size (adjust these values based on your requirements)
-      if (face.bounds.width > 150 && face.bounds.height > 150) {
-        setIsScanning(false);
-        setScanComplete(true);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-        // Trigger success animation
-        Animated.timing(successAnimation, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }).start(() => {
-          setTimeout(() => {
-            onFaceDetected(face);
-          }, 1000);
-        });
-      }
+      // Animate success
+      Animated.timing(successAnimation, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start(() => {
+        // Delay to show success animation
+        setTimeout(() => {
+          onFaceDetected({ detected: true }); // Mock data
+        }, 1000);
+      });
     }
-  }, []);
+  };
+  
+  // Render guidance instructions
+  const renderGuidance = () => {
+    if (!isScanning && scanComplete) {
+      return (
+        <Animated.View 
+          style={[
+            styles.guidanceContainer,
+            { opacity: successAnimation }
+          ]}
+        >
+          <Ionicons name="checkmark-circle" size={60} color={Colors.light.success} />
+          <ThemedText style={styles.guidanceText}>Face Recognized!</ThemedText>
+        </Animated.View>
+      );
+    }
+    
+    return (
+      <View style={styles.guidanceContainer}>
+        <ThemedText style={styles.guidanceTitle}>Position Your Face</ThemedText>
+        <ThemedText style={styles.guidanceText}>
+          Center your face in the frame and look directly at the camera
+        </ThemedText>
+      </View>
+    );
+  };
 
-  // Keep your existing permission handling and UI components
-  if (hasPermission === null) {
+  if (!permission) {
+    // Permission is still loading
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.light.primary} />
@@ -391,12 +409,16 @@ export default function FaceScanner({ onFaceDetected, onCancel }: FaceScannerPro
       </View>
     );
   }
-
-  if (hasPermission === false) {
+  
+  if (!permission.granted) {
+    // Permission was denied
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="close-circle" size={60} color={Colors.light.error} />
         <ThemedText style={styles.errorText}>Camera permission denied</ThemedText>
+        <ThemedText style={styles.errorSubtext}>
+          We need camera access to use face recognition
+        </ThemedText>
         <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
           <ThemedText style={styles.cancelButtonText}>Back</ThemedText>
         </TouchableOpacity>
@@ -406,47 +428,56 @@ export default function FaceScanner({ onFaceDetected, onCancel }: FaceScannerPro
 
   return (
     <View style={styles.container}>
-      {device && (
-        <Camera
-          style={styles.camera}
-          device={device}
-          isActive={true}
-          ref={cameraRef}
-          frameProcessor={frameProcessor}
-          pixelFormat="yuv"
-        />
-      )}
+      <CameraView
+        style={styles.camera}
+        facing="front"
+        ref={(ref) => (cameraRef.current = ref)}
+      >
+        <View style={styles.overlay}>
+          {/* Face scanner overlay */}
+          <Animated.View 
+            style={[
+              styles.faceBox,
+              {
+                borderColor: faceBorderAnimation.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['rgba(37, 99, 235, 0.3)', 'rgba(37, 99, 235, 0.8)']
+                }),
+                transform: [
+                  {
+                    scale: successAnimation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 0.9]
+                    })
+                  }
+                ]
+              }
+            ]}
+          />
 
-      <View style={styles.overlay}>
-        <Animated.View 
-          style={[
-            styles.faceBox,
-            {
-              borderColor: faceBorderAnimation.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['rgba(37, 99, 235, 0.3)', 'rgba(37, 99, 235, 0.8)']
-              }),
-              transform: [
-                {
-                  scale: successAnimation.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [1, 0.9]
-                  })
-                }
-              ]
-            }
-          ]}
-        />
+          {/* Guidance text */}
+          {renderGuidance()}
 
-        <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
-          <Ionicons name="close" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
+          {/* Test button for demo - simulates face detection */}
+          <TouchableOpacity 
+            style={styles.testButton}
+            onPress={scanFaces}
+          >
+            <ThemedText style={styles.testButtonText}>
+              Scan Face
+            </ThemedText>
+          </TouchableOpacity>
+
+          {/* Cancel button */}
+          <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+            <Ionicons name="close" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </CameraView>
     </View>
   );
 }
 
-// Keep your existing styles unchanged
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -469,6 +500,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  guidanceContainer: {
+    position: 'absolute',
+    bottom: 100,
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 12,
+  },
+  guidanceTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  guidanceText: {
+    color: '#fff',
+    textAlign: 'center',
+  },
   cancelButton: {
     position: 'absolute',
     top: 50,
@@ -481,6 +532,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  testButton: {
+    position: 'absolute',
+    bottom: 40,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: Colors.light.primary,
+    borderRadius: 10,
+  },
+  testButtonText: {
     color: '#fff',
     fontWeight: '600',
   },
@@ -507,5 +570,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 16,
     marginBottom: 8,
+  },
+  errorSubtext: {
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 24,
   },
 });

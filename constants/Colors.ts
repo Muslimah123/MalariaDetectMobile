@@ -47,6 +47,8 @@ export const Colors = {
     errorLight: '#f8d7da', // Add this line
     border: '#e0e0e0', // Added border color
     card: '#fff', // Added card color
+    borderColor: '#000', // Added border color
+    cardborder: '#000', // Added card border color
     
   },
   dark: {

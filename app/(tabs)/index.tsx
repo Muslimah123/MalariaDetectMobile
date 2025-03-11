@@ -274,6 +274,7 @@ export default function DashboardScreen() {
               )}
             </View>
           )}
+          
         </View>
       </Animated.View>
     );

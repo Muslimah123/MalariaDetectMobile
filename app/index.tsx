@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+// app/index.tsx
+import React, { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -7,18 +8,42 @@ import {
   Dimensions,
   TouchableOpacity,
   StatusBar,
-  Platform
+  Platform,
+  Image
 } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { useAuth } from './context/AuthContext';
 
 // Constants
-import {Colors} from '../constants/Colors';
+import { Colors } from '../constants/Colors';
 
 const { width, height } = Dimensions.get('window');
+
+// Onboarding slides
+const SLIDES = [
+  {
+    title: 'Advanced Malaria Detection',
+    description: 'Leverage AI to quickly and accurately detect malaria parasites in blood samples',
+    icon: 'bacteria',
+    color: Colors.light.primary
+  },
+  {
+    title: 'Streamlined Workflow',
+    description: 'Register samples, capture microscope images, and get instant analysis results',
+    icon: 'test-tube',
+    color: '#9333ea' // Purple
+  },
+  {
+    title: 'Data-Driven Insights',
+    description: 'Generate comprehensive reports and track detection metrics over time',
+    icon: 'chart-bar',
+    color: '#14b8a6' // Teal
+  }
+];
 
 // SVG component for the circular paths
 const CirclePath = ({ 
@@ -70,6 +95,8 @@ const CirclePath = ({
 
 export default function WelcomeScreen() {
   const insets = useSafeAreaInsets();
+  const { hasCompletedOnboarding, completeOnboarding, isAuthenticated } = useAuth();
+  const [currentSlide, setCurrentSlide] = useState(0);
   
   // Animation values
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -84,6 +111,7 @@ export default function WelcomeScreen() {
   const buttonOpacity = useRef(new Animated.Value(0)).current;
   const buttonScale = useRef(new Animated.Value(0.9)).current;
   const circleProgress = useRef(new Animated.Value(0)).current;
+  const slideTranslateX = useRef(new Animated.Value(0)).current;
   
   // Cell animation values
   const cells = Array(5).fill(0).map(() => ({
@@ -94,6 +122,16 @@ export default function WelcomeScreen() {
   }));
   
   useEffect(() => {
+    // If user has already completed onboarding, go directly to auth/tabs
+    if (hasCompletedOnboarding) {
+      if (isAuthenticated) {
+        router.replace('/(tabs)');
+      } else {
+        router.replace('/auth/login');
+      }
+      return;
+    }
+    
     // Start the animation sequence
     Animated.sequence([
       // Fade in background
@@ -204,7 +242,7 @@ export default function WelcomeScreen() {
     cells.forEach((cell, index) => {
       startFloatingAnimation(cell.translateX, cell.translateY, 3000 + index * 500);
     });
-  }, []);
+  }, [hasCompletedOnboarding, isAuthenticated]);
   
   // Function to create floating animation for cells
   const startFloatingAnimation = (
@@ -247,6 +285,37 @@ export default function WelcomeScreen() {
     return Math.random() * (max - min) + min;
   };
   
+  // Navigate to next slide
+  const goToNextSlide = () => {
+    if (currentSlide < SLIDES.length - 1) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
+      // Animate slide transition
+      Animated.sequence([
+        Animated.timing(slideTranslateX, {
+          toValue: -width,
+          duration: 300,
+          useNativeDriver: true
+        }),
+        Animated.timing(slideTranslateX, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true
+        })
+      ]).start(() => {
+        setCurrentSlide(prev => prev + 1);
+      });
+    } else {
+      handleGetStarted();
+    }
+  };
+  
+  // Skip onboarding
+  const skipOnboarding = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    handleGetStarted();
+  };
+  
   // Handle getting started button press
   const handleGetStarted = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -265,10 +334,30 @@ export default function WelcomeScreen() {
       }),
     ]).start();
     
-    // Navigate to dashboard
+    // Mark onboarding as completed
+    completeOnboarding();
+    
+    // Navigate to login
     setTimeout(() => {
-      router.replace('/(tabs)');
+      router.replace('/auth/login');
     }, 200);
+  };
+  
+  // Render onboarding dots
+  const renderDots = () => {
+    return (
+      <View style={styles.dotsContainer}>
+        {SLIDES.map((_, index) => (
+          <View
+            key={index}
+            style={[
+              styles.dot,
+              index === currentSlide && styles.activeDot
+            ]}
+          />
+        ))}
+      </View>
+    );
   };
 
   return (
@@ -349,43 +438,99 @@ export default function WelcomeScreen() {
           ]} />
         </View>
         
-        {/* App title */}
-        <Animated.Text style={[
-          styles.title,
-          {
-            opacity: titleOpacity,
-            transform: [{ translateY: titleTranslateY }],
-            marginTop: insets.top + 60
-          }
-        ]}>
-          MalariaDetect
-        </Animated.Text>
-        
-        {/* Subtitle */}
-        <Animated.Text style={[
-          styles.subtitle,
-          { opacity: subtitleOpacity }
-        ]}>
-        Automating Malaria Diagnosis
-        </Animated.Text>
-        
-        {/* Get started button */}
-        <Animated.View style={[
-          styles.buttonContainer,
-          {
-            opacity: buttonOpacity,
-            transform: [{ scale: buttonScale }],
-            marginBottom: insets.bottom > 0 ? insets.bottom : 20
-          }
-        ]}>
-          <TouchableOpacity
-            style={styles.button}
-            onPress={handleGetStarted}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.buttonText}>Get Started</Text>
-            <Ionicons name="arrow-forward" size={20} color="#fff" style={styles.buttonIcon} />
-          </TouchableOpacity>
+        {/* Onboarding content */}
+        <Animated.View 
+          style={[
+            styles.contentContainer,
+            {
+              transform: [{ translateX: slideTranslateX }]
+            }
+          ]}
+        >
+          {/* App title */}
+          <Animated.Text style={[
+            styles.title,
+            {
+              opacity: titleOpacity,
+              transform: [{ translateY: titleTranslateY }],
+              marginTop: insets.top + 60
+            }
+          ]}>
+            MalariaDetect
+          </Animated.Text>
+          
+          {/* Current slide content */}
+          <Animated.View style={styles.slideContent}>
+            <MaterialCommunityIcons 
+              name={SLIDES[currentSlide].icon as any} 
+              size={50} 
+              color={SLIDES[currentSlide].color} 
+              style={styles.slideIcon} 
+            />
+            
+            <Text style={styles.slideTitle}>
+              {SLIDES[currentSlide].title}
+            </Text>
+            
+            <Animated.Text style={[
+              styles.subtitle,
+              { opacity: subtitleOpacity }
+            ]}>
+              {SLIDES[currentSlide].description}
+            </Animated.Text>
+          </Animated.View>
+          
+          {/* Dots indicator */}
+          {renderDots()}
+          
+          {/* Action buttons */}
+          <View style={styles.actionsContainer}>
+            {currentSlide < SLIDES.length - 1 ? (
+              <>
+                <TouchableOpacity
+                  style={styles.skipButton}
+                  onPress={skipOnboarding}
+                >
+                  <Text style={styles.skipButtonText}>Skip</Text>
+                </TouchableOpacity>
+                
+                <Animated.View style={[
+                  styles.nextButtonContainer,
+                  {
+                    opacity: buttonOpacity,
+                    transform: [{ scale: buttonScale }],
+                    marginBottom: insets.bottom > 0 ? insets.bottom : 20
+                  }
+                ]}>
+                  <TouchableOpacity
+                    style={styles.nextButton}
+                    onPress={goToNextSlide}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="arrow-forward" size={24} color="#fff" />
+                  </TouchableOpacity>
+                </Animated.View>
+              </>
+            ) : (
+              <Animated.View style={[
+                styles.buttonContainer,
+                {
+                  opacity: buttonOpacity,
+                  transform: [{ scale: buttonScale }],
+                  marginBottom: insets.bottom > 0 ? insets.bottom : 20
+                }
+              ]}>
+                <TouchableOpacity
+                  style={styles.button}
+                  onPress={handleGetStarted}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.buttonText}>Get Started</Text>
+                  <Ionicons name="arrow-forward" size={20} color="#fff" style={styles.buttonIcon} />
+                </TouchableOpacity>
+              </Animated.View>
+            )}
+          </View>
         </Animated.View>
       </LinearGradient>
     </Animated.View>
@@ -400,14 +545,14 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 60,
+    paddingVertical: 40,
   },
   logoContainer: {
     width: 240,
     height: 240,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 60,
+    marginTop: 20,
   },
   circleContainer: {
     position: 'absolute',
@@ -446,22 +591,89 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 10,
   },
+  contentContainer: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
   title: {
     fontSize: 38,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 12,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  slideContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 40,
+  },
+  slideIcon: {
+    marginBottom: 20,
+  },
+  slideTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 16,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: 16,
     color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 60,
     textAlign: 'center',
+    paddingHorizontal: 20,
+    lineHeight: 24,
+  },
+  dotsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 30,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    marginHorizontal: 4,
+  },
+  activeDot: {
+    backgroundColor: '#fff',
+    width: 16,
+  },
+  actionsContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 20,
+  },
+  skipButton: {
+    padding: 10,
+  },
+  skipButtonText: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 16,
+  },
+  nextButtonContainer: {
+    marginLeft: 'auto',
+  },
+  nextButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   buttonContainer: {
-    width: '85%',
-    maxWidth: 300,
+    width: '100%',
   },
   button: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',

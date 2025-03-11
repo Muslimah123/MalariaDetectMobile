@@ -1,7 +1,8 @@
-// context/AuthContext.tsx
+// app/context/AuthContext.tsx
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { Alert } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import { router } from 'expo-router';
 
 export type UserRole = 'lab_technician' | 'doctor' | 'admin';
 
@@ -11,21 +12,26 @@ export interface User {
   email: string;
   role: UserRole;
   hasFaceId: boolean;
+  lastLogin: string;
 }
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   loginWithFace: (faceData: any) => Promise<boolean>;
   register: (name: string, email: string, password: string, role: UserRole) => Promise<boolean>;
   logout: () => void;
   setupFaceId: (faceData: any) => Promise<boolean>;
+  hasCompletedOnboarding: boolean;
+  completeOnboarding: () => void;
+  resetOnboarding: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock authentication functions - replace with actual API calls in production
+// Enhanced mock user data
 const mockUsers = [
   {
     id: '1',
@@ -34,7 +40,8 @@ const mockUsers = [
     password: 'password123',
     role: 'lab_technician' as UserRole,
     hasFaceId: false,
-    faceData: null
+    faceData: null,
+    lastLogin: ''
   },
   {
     id: '2',
@@ -43,7 +50,8 @@ const mockUsers = [
     password: 'password123',
     role: 'doctor' as UserRole,
     hasFaceId: false,
-    faceData: null
+    faceData: null,
+    lastLogin: ''
   },
   {
     id: '3',
@@ -52,31 +60,46 @@ const mockUsers = [
     password: 'password123',
     role: 'admin' as UserRole,
     hasFaceId: false,
-    faceData: null
+    faceData: null,
+    lastLogin: ''
   }
 ];
 
 export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Check for existing session on app start
+  // Check for existing session and onboarding status on app start
   useEffect(() => {
-    const loadUser = async () => {
+    const initializeAuth = async () => {
       try {
+        // Check if onboarding was completed
+        const onboardingStatus = await SecureStore.getItemAsync('onboardingCompleted');
+        setHasCompletedOnboarding(onboardingStatus === 'true');
+        
+        // Check for existing user session
         const userJson = await SecureStore.getItemAsync('user');
         if (userJson) {
-          setUser(JSON.parse(userJson));
+          const parsedUser = JSON.parse(userJson);
+          setUser(parsedUser);
+          setIsAuthenticated(true);
         }
       } catch (error) {
-        console.error('Failed to load user', error);
+        console.error('Failed to load authentication state', error);
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadUser();
+    initializeAuth();
   }, []);
+
+  const completeOnboarding = async () => {
+    await SecureStore.setItemAsync('onboardingCompleted', 'true');
+    setHasCompletedOnboarding(true);
+  };
 
   const login = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
@@ -92,11 +115,20 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
           name: foundUser.name,
           email: foundUser.email,
           role: foundUser.role,
-          hasFaceId: foundUser.hasFaceId
+          hasFaceId: foundUser.hasFaceId,
+          lastLogin: new Date().toISOString()
         };
         
         setUser(userData);
+        setIsAuthenticated(true);
         await SecureStore.setItemAsync('user', JSON.stringify(userData));
+        
+        // Update mock data with last login (in a real app, this would be a server API call)
+        const index = mockUsers.findIndex(u => u.id === foundUser.id);
+        if (index !== -1) {
+          mockUsers[index].lastLogin = new Date().toISOString();
+        }
+        
         return true;
       } else {
         Alert.alert('Login Failed', 'Invalid email or password');
@@ -126,11 +158,20 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
           name: foundUser.name,
           email: foundUser.email,
           role: foundUser.role,
-          hasFaceId: true
+          hasFaceId: true,
+          lastLogin: new Date().toISOString()
         };
         
         setUser(userData);
+        setIsAuthenticated(true);
         await SecureStore.setItemAsync('user', JSON.stringify(userData));
+        
+        // Update mock user's last login
+        const index = mockUsers.findIndex(u => u.id === foundUser.id);
+        if (index !== -1) {
+          mockUsers[index].lastLogin = new Date().toISOString();
+        }
+        
         return true;
       } else {
         Alert.alert('Face ID Failed', 'Could not recognize face');
@@ -165,23 +206,16 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         password,
         role,
         hasFaceId: false,
-        faceData: null
+        faceData: null,
+        lastLogin: new Date().toISOString()
       };
       
       // In a real app, this would be stored in the backend
       mockUsers.push(newUser);
       
-      // Log in the user
-      const userData: User = {
-        id: newUser.id,
-        name: newUser.name,
-        email: newUser.email,
-        role: newUser.role,
-        hasFaceId: false
-      };
-      
-      setUser(userData);
-      await SecureStore.setItemAsync('user', JSON.stringify(userData));
+      // Store email and password temporarily for face setup
+      await SecureStore.setItemAsync('tempUserEmail', email);
+      await SecureStore.setItemAsync('tempUserPassword', password);
       
       return true;
     } catch (error) {
@@ -199,21 +233,24 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       // Simulate processing delay
       await new Promise(resolve => setTimeout(resolve, 1500));
       
-      if (!user) {
-        Alert.alert('Error', 'No user is logged in');
+      // Get the email from temporary storage
+      const email = await SecureStore.getItemAsync('tempUserEmail');
+      
+      if (!email) {
+        Alert.alert('Error', 'No user information found');
         return false;
       }
       
-      // Update user with face data
-      const userIndex = mockUsers.findIndex(u => u.id === user.id);
+      // Find the user by email
+      const userIndex = mockUsers.findIndex(u => u.email === email);
+      
       if (userIndex !== -1) {
         mockUsers[userIndex].hasFaceId = true;
         mockUsers[userIndex].faceData = faceData;
         
-        // Update current user
-        const updatedUser = { ...user, hasFaceId: true };
-        setUser(updatedUser);
-        await SecureStore.setItemAsync('user', JSON.stringify(updatedUser));
+        // Clear temporary storage
+        await SecureStore.deleteItemAsync('tempUserEmail');
+        await SecureStore.deleteItemAsync('tempUserPassword');
         
         return true;
       }
@@ -228,20 +265,41 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     }
   };
 
+  const resetOnboarding = async () => {
+    setHasCompletedOnboarding(false);
+    await SecureStore.deleteItemAsync('onboardingCompleted');
+    console.log("Onboarding status reset");
+  };
+
   const logout = async () => {
+    // Clear user data
     setUser(null);
+    setIsAuthenticated(false);
+    
+    // Reset onboarding status to show welcome screen again
+    setHasCompletedOnboarding(false);
+    
+    // Clear secure storage
     await SecureStore.deleteItemAsync('user');
+    await SecureStore.deleteItemAsync('onboardingCompleted');
+    
+    // Route to welcome screen (index)
+    router.replace('/');
   };
 
   return (
     <AuthContext.Provider value={{
       user,
       isLoading,
+      isAuthenticated,
       login,
       loginWithFace,
       register,
       logout,
-      setupFaceId
+      setupFaceId,
+      hasCompletedOnboarding,
+      completeOnboarding,
+      resetOnboarding
     }}>
       {children}
     </AuthContext.Provider>
@@ -255,3 +313,6 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+
+// Add a default export - this is what's missing
+export default { AuthProvider, useAuth };

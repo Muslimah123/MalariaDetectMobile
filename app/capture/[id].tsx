@@ -1124,6 +1124,8 @@ import { mockSampleDetails } from '../../constants/MockData';
 // Auth Context
 import { useAuth } from '../context/AuthContext';
 
+
+
 const { width, height } = Dimensions.get('window');
 
 const GRID_COLOR = 'rgba(255, 255, 255, 0.35)';
